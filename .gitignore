@@ -1,0 +1,4 @@
+**/fake-news-detector-files
+**/*.pth
+**/__pycache__
+**/model_cache
