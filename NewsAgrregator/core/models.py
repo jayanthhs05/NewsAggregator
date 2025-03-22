@@ -28,3 +28,21 @@ class Article(models.Model):
     publication_date = models.DateTimeField()
     is_verified = models.BooleanField(default=False)
     verification_score = models.FloatField(null=True)
+
+class EventCluster(models.Model):
+    name = models.CharField(max_length=200)
+    articles = models.ManyToManyField('Article', related_name='event_clusters')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class UserActivity(models.Model):
+    ACTIVITY_TYPES = [
+        ('read', 'Read Article'), 
+        ('click', 'Clicked Link'),
+        ('share', 'Shared Article'),
+        ('save', 'Saved Article'),
+    ]
+    user = models.ForeignKey('CustomUser', on_delete=models.CASCADE)
+    article = models.ForeignKey('Article', on_delete=models.CASCADE)
+    activity_type = models.CharField(max_length=10, choices=ACTIVITY_TYPES)
+    timestamp = models.DateTimeField(auto_now_add=True)

@@ -85,6 +85,7 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 3600,
     },
 }
+CELERY_RESULT_BACKEND = 'django-db'
 
 
 LANGUAGE_CODE = "en-us"
