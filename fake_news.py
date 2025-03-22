@@ -1,7 +1,6 @@
 import torch
 from transformers import DebertaV2Tokenizer, DebertaV2ForSequenceClassification
 
-
 def predict_fake_news(text, model_path="fake_news_detector.pth"):
 
     if not hasattr(predict_fake_news, "model"):
