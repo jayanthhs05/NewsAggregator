@@ -1,0 +1,40 @@
+<!-- templates/core/article_detail.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <article>
+            <h1>{{ article.title }}</h1>
+            <div class="text-muted mb-3">
+                <span>{{ article.source.name }}</span> - 
+                <span>{{ article.publication_date|date:"M d, Y H:i" }}</span>
+            </div>
+            
+            <div class="content-area mb-4">
+                {{ article.processed_content|linebreaks }}
+            </div>
+            
+            <div class="alert alert-secondary summary-box" style="display: none;">
+                <h4>Summary</h4>
+                <div class="summary-content"></div>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn btn-outline-primary summarize-btn" data-id="{{ article.id }}">
+                    Show Summary
+                </button>
+                <div class="dropdown">
+                    <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        Translate
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item translate-btn" href="
+                        <li><a class="dropdown-item translate-btn" href="
+                    </ul>
+                </div>
+            </div>
+        </article>
+    </div>
+</div>
+{% endblock %}

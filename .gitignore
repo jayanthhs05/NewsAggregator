@@ -2,3 +2,6 @@
 **/*.pth
 **/__pycache__
 **/model_cache
+*.env
+*.sqlite3
+**/migrations

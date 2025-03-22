@@ -1,0 +1,49 @@
+<!-- templates/core/dashboard.html -->
+{% extends "base.html" %} {% block content %}
+<h2 class="mb-4">Your News Feed</h2>
+<div class="row">
+  {% for article in articles %}
+  <div class="col-md-6 mb-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">{{ article.title }}</h5>
+        <p class="card-text text-muted small">
+          {{ article.source.name }} - {{ article.publication_date|date:"M d, Y
+          H:i" }}
+        </p>
+        <div class="btn-group">
+          <a
+            href="{% url 'article_detail' article.id %}"
+            class="btn btn-sm btn-outline-primary"
+            >Read</a
+          >
+          <button
+            class="btn btn-sm btn-outline-secondary summarize-btn"
+            data-id="{{ article.id }}"
+          >
+            Summarize
+          </button>
+          <div class="dropdown">
+            <button
+              class="btn btn-sm btn-outline-info dropdown-toggle"
+              type="button"
+              data-bs-toggle="dropdown"
+            >
+              Translate
+            </button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="</li>
+              <li><a class="dropdown-item" href="</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="col-12">
+    <div class="alert alert-info">No articles found in your feed</div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
