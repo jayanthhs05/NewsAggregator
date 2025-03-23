@@ -28,6 +28,11 @@ class Article(models.Model):
     publication_date = models.DateTimeField()
     is_verified = models.BooleanField(default=False)
     verification_score = models.FloatField(null=True)
+    is_fake_news = models.BooleanField(default=False, null=True)
+    fake_news_confidence = models.FloatField(null=True, blank=True)
+    article_summary = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
 class EventCluster(models.Model):
     name = models.CharField(max_length=200)

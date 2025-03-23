@@ -36,4 +36,46 @@
         </article>
     </div>
 </div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <h3>Article Actions</h3>
+            <div>
+                <a href="{% url 'generate_summary' article.id %}" class="btn btn-primary">Generate Summary</a>
+                <a href="{% url 'detect_fake_news' article.id %}" class="btn btn-warning">Detect Fake News</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if article.article_summary %}
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Summary</h3>
+    </div>
+    <div class="card-body">
+        <p>{{ article.article_summary }}</p>
+    </div>
+</div>
+{% endif %}
+
+{% if article.is_fake_news is not None %}
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Fake News Detection</h3>
+    </div>
+    <div class="card-body">
+        <div class="alert {% if article.is_fake_news %}alert-danger{% else %}alert-success{% endif %}">
+            <h4>
+                {% if article.is_fake_news %}
+                    This article might contain fake news ({{ article.fake_news_confidence|floatformat:2 }}% confidence)
+                {% else %}
+                    This article appears to be reliable ({{ article.fake_news_confidence|floatformat:2 }}% confidence)
+                {% endif %}
+            </h4>
+        </div>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
