@@ -40,7 +40,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = "NewsAgrregator.urls"
+ROOT_URLCONF = "NewsAggregator.urls"
 
 TEMPLATES = [
     {
@@ -58,7 +58,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "NewsAgrregator.wsgi.application"
+WSGI_APPLICATION = "NewsAggregator.wsgi.application"
 
 
 DATABASES = {
@@ -85,7 +85,7 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 3600,
     },
 }
-CELERY_RESULT_BACKEND = 'django-db'
+CELERY_RESULT_BACKEND = "django-db"
 
 
 LANGUAGE_CODE = "en-us"

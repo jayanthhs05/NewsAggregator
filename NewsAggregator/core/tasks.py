@@ -4,6 +4,7 @@ from .utils.scrapers import scrape_apnews, scrape_reuters
 from .utils.clustering import cluster_recent_articles
 from .utils.recommendations import build_tfidf_matrix
 
+
 @shared_task(rate_limit="5/m")
 def scrape_articles():
     for source in NewsSource.objects.filter(is_active=True):
@@ -22,10 +23,20 @@ def scrape_articles():
                 },
             )
 
+
 @shared_task(rate_limit="1/h")
 def update_event_clusters():
     cluster_recent_articles(days=7)
 
+
 @shared_task(rate_limit="1/d")
 def update_tfidf_matrix():
     build_tfidf_matrix()
+
+
+@shared_task
+def update_faiss_index():
+
+    from .utils.recommendations import build_and_save_faiss_index
+
+    build_and_save_faiss_index()

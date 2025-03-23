@@ -6,7 +6,7 @@ from django.views.generic import TemplateView, DetailView
 from .forms import CustomUserCreationForm
 from .models import *
 from django.contrib.auth.decorators import login_required
-from .utils.recommendations import get_content_based_recommendations, get_sentence_bert_recommendations
+from .utils.recommendations import get_content_based_recommendations, get_faiss_recommendations
 
 
 class DashboardView(TemplateView):
@@ -44,14 +44,14 @@ def signup(request):
 @login_required
 def personalized_feed(request):
     use_sbert = request.GET.get('use_sbert', 'false').lower() == 'true'
-    articles = get_sentence_bert_recommendations(request.user.id, 20) if use_sbert else get_content_based_recommendations(request.user.id, 20)
+    articles = get_faiss_recommendations(request.user.id, 20) if use_sbert else get_content_based_recommendations(request.user.id, 20)
     return render(request, 'core/personalized_feed.html', {'articles': articles})
 
 @login_required
 def article_detail(request, article_id):
     article = Article.objects.get(id=article_id)
     UserActivity.objects.create(user=request.user, article=article, activity_type='read')
-    recommendations = get_sentence_bert_recommendations(request.user.id, 5) if request.GET.get('use_sbert') else get_content_based_recommendations(request.user.id, 5)
+    recommendations = get_faiss_recommendations(request.user.id, 5) if request.GET.get('use_sbert') else get_content_based_recommendations(request.user.id, 5)
     return render(request, 'core/article_detail.html', {'article': article, 'recommendations': recommendations})
 
 def event_clusters(request):
