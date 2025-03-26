@@ -18,13 +18,11 @@ class Command(BaseCommand):
                     }
                 )
 
-                Article.objects.update_or_create(
-                    defaults={
-                        'source': source,
-                        'title': item['headline'],
-                        'raw_content': item['content'],
-                        'publication_date': parser.parse(item['publication_date']),
-                        'language': 'en' if 'cymru' not in item['url'] else 'cy'
-                    }
+                Article.objects.create(
+                    source= source,
+                    title= item['headline'],
+                    raw_content= item['content'],
+                    processed_content=item['content'],
+                    publication_date= parser.parse(item['publication_date']),
                 )
         self.stdout.write(self.style.SUCCESS(f'Successfully imported {len(data)} articles'))

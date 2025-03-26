@@ -5,6 +5,23 @@ from .utils.clustering import cluster_recent_articles
 from .utils.recommendations import build_tfidf_matrix
 from .utils.article_summarizer import summarize_article
 from .utils.fake_news_detector import detect_fake_news
+from .utils.translation import translate_article_content
+
+@shared_task(bind=True, max_retries=3)
+def translate_article_task(self, article_id, target_lang='en'):
+    try:
+        article = Article.objects.get(id=article_id)
+        translated = translate_article_content(
+            article.content,
+            target_lang=target_lang
+        )
+        if translated:
+            article.translated_content = translated
+            article.translation_language = target_lang
+            article.save(update_fields=['translated_content', 'translation_language'])
+        return translated
+    except Article.DoesNotExist:
+        self.retry(countdown=10)
 
 
 @shared_task(rate_limit="5/m")

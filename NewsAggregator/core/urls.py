@@ -8,4 +8,5 @@ urlpatterns = [
     path('article/<int:article_id>/summarize/', views.generate_article_summary, name='generate_summary'),
     path('article/<int:article_id>/detect-fake-news/', views.detect_article_fake_news, name='detect_fake_news'),
     path('batch-process/', views.batch_process_articles, name='batch_process'),
+    path('article/<int:article_id>/translate/', views.translate_article_view, name='translate-article'),
 ]

@@ -13,6 +13,8 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
+LIBRETRANSLATE_URL = 'http://localhost:5000'
+
 DEBUG = True
 
 ALLOWED_HOSTS = []

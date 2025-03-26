@@ -59,11 +59,3 @@ def detect_fake_news(text, model_dir=MODEL_DIR):
         torch.cuda.empty_cache()
 
     return is_fake, fake_score
-
-
-def lol():
-    print(
-        detect_fake_news(
-            "In today’s fast-paced world, technology has become an integral part of our daily lives. From the moment we wake up to the moment we go to bed, we are surrounded by gadgets and devices that help us stay connected, entertained, and informed. Smartphones, laptops, and tablets have revolutionized the way we work, learn, and communicate. The internet has made it possible to access information from anywhere in the world, at any time. Social media platforms have connected people from different corners of the globe, enabling them to share their thoughts, experiences, and ideas in real-time. However, with all these advancements, there are also challenges. The overuse of technology has led to concerns about privacy, data security, and the impact of screen time on mental health. People are becoming more aware of the need to strike a balance between embracing technology and ensuring that it doesn’t negatively affect their well-being. Additionally, the rise of artificial intelligence and automation is changing the landscape of the job market, with some jobs becoming obsolete while new ones are being created. This has raised questions about the future of work and the skills required to thrive in an increasingly automated world. As we continue to advance, it is crucial to think about how we can harness the power of technology in a responsible and sustainable way that benefits society as a whole."
-        )
-    )

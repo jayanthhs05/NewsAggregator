@@ -8,6 +8,9 @@ from django.urls import reverse_lazy
 from django.views.generic import TemplateView, DetailView
 from .forms import CustomUserCreationForm
 from .models import *
+from django.views.decorators.http import require_http_methods
+from django.http import JsonResponse
+from .tasks import translate_article_task
 from django.contrib.auth.decorators import login_required
 from .utils.recommendations import (
     get_content_based_recommendations,
@@ -50,12 +53,13 @@ def signup(request):
 
 @login_required
 def personalized_feed(request):
-    use_sbert = request.GET.get("use_sbert", "false").lower() == "true"
-    articles = (
-        get_faiss_recommendations(request.user.id, 20)
-        if use_sbert
-        else get_content_based_recommendations(request.user.id, 20)
-    )
+    # use_sbert = request.GET.get("use_sbert", "false").lower() == "true"
+    # articles = (
+    #     get_faiss_recommendations(request.user.id, 20)
+    #     if use_sbert
+    #     else get_content_based_recommendations(request.user.id, 20)
+    # )
+    articles = Article.objects.all()
     return render(request, "core/personalized_feed.html", {"articles": articles})
 
 
@@ -123,3 +127,12 @@ def batch_process_articles(request):
 
     articles = Article.objects.all()
     return render(request, "core/batch_process.html", {"articles": articles})
+
+@require_http_methods(["POST"])
+def translate_article_view(request, article_id):
+    target_lang = request.POST.get('target_lang', 'en')
+    task = translate_article_task.delay(article_id, target_lang)
+    return JsonResponse({
+        'task_id': task.id,
+        'status_url': f'/tasks/status/{task.id}/'
+    })
