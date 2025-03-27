@@ -6,11 +6,7 @@ SUPPORTED_LANGUAGES = {
     'fr': 'French',
     'de': 'German',
     'it': 'Italian',
-    'pt': 'Portuguese',
-    'ru': 'Russian',
-    'ja': 'Japanese',
-    'zh': 'Chinese',
-    'ar': 'Arabic'
+    'ru': 'Russian'
 }
 
 def translate_article_content(text, target_lang):

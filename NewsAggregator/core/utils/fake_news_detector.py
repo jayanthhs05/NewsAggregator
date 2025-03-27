@@ -51,8 +51,8 @@ def detect_fake_news(text, model_dir=MODEL_DIR):
         outputs = detect_fake_news.model(**inputs)
         probabilities = torch.softmax(outputs.logits, dim=1)
 
-    fake_score = probabilities[0, 1].item()
-    is_fake = fake_score > 0.5
+    fake_score = probabilities[0, 1].item() * 100
+    is_fake = fake_score > 50
 
     del inputs, outputs, probabilities
     if torch.cuda.is_available():
