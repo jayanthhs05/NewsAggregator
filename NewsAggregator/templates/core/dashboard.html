@@ -1,4 +1,5 @@
-{% extends "base.html" %} {% block content %}
+{% extends "base.html" %}
+{% block content %}
 <h2 class="mb-4">Your News Feed</h2>
 <div class="row">
   {% for article in articles %}
@@ -10,28 +11,29 @@
           {{ article.source.name }} - {{ article.publication_date|date:"M d, Y H:i" }}
         </p>
         <div class="btn-group">
-          <a
-            href="{% url 'article_detail' article.id %}"
-            class="btn btn-sm btn-outline-primary"
-            >Read</a
-          >
-          <button
-            class="btn btn-sm btn-outline-secondary summarize-btn"
-            data-id="{{ article.id }}"
-          >
+          <a href="{% url 'article_detail' article.id %}" 
+             class="btn btn-sm btn-outline-primary">Read</a>
+          <button class="btn btn-sm btn-outline-secondary summarize-btn" 
+                  data-id="{{ article.id }}">
             Summarize
           </button>
           <div class="dropdown">
-            <button
-              class="btn btn-sm btn-outline-info dropdown-toggle"
-              type="button"
-              data-bs-toggle="dropdown"
-            >
+            <button class="btn btn-sm btn-outline-info dropdown-toggle" 
+                    type="button" 
+                    data-bs-toggle="dropdown">
               Translate
             </button>
             <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="</li>
-              <li><a class="dropdown-item" href="</li>
+              <li><a class="dropdown-item translate-btn" href="#" 
+                     data-id="{{ article.id }}" data-lang="es">Spanish</a></li>
+              <li><a class="dropdown-item translate-btn" href="#" 
+                     data-id="{{ article.id }}" data-lang="fr">French</a></li>
+              <li><a class="dropdown-item translate-btn" href="#" 
+                     data-id="{{ article.id }}" data-lang="de">German</a></li>
+              <li><a class="dropdown-item translate-btn" href="#" 
+                     data-id="{{ article.id }}" data-lang="it">Italian</a></li>
+              <li><a class="dropdown-item translate-btn" href="#" 
+                     data-id="{{ article.id }}" data-lang="pt">Portuguese</a></li>
             </ul>
           </div>
         </div>

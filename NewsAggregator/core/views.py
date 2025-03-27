@@ -10,13 +10,36 @@ from .forms import CustomUserCreationForm
 from .models import *
 from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
-from .tasks import translate_article_task
+from .tasks import translate_article_content
 from django.contrib.auth.decorators import login_required
 from .utils.recommendations import (
     get_content_based_recommendations,
     get_faiss_recommendations,
 )
 from .tasks import process_article_summary, process_fake_news_detection
+from celery.result import AsyncResult
+
+@require_http_methods(["GET"])
+def task_status(request, task_id):
+    task = AsyncResult(task_id)
+    return JsonResponse({
+        "status": task.status,
+        "result": str(task.result) if task.ready() else None
+    })
+
+
+@require_http_methods(["GET"])
+def article_content(request, article_id):
+    article = get_object_or_404(Article, id=article_id)
+    lang = request.GET.get('lang')
+    
+    if lang and lang != 'en' and article.translated_content:
+        content = article.translated_content
+    else:
+        content = article.processed_content or article.raw_content
+        
+    return JsonResponse({"translated_content": content})
+
 
 
 class DashboardView(TemplateView):
@@ -24,7 +47,7 @@ class DashboardView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["articles"] = Article.objects.all().order_by("-publication_date")[:50]
+        context["articles"] = Article.objects.all().order_by("-publication_date")[:10]
         return context
 
 
@@ -53,12 +76,12 @@ def signup(request):
 
 @login_required
 def personalized_feed(request):
-    # use_sbert = request.GET.get("use_sbert", "false").lower() == "true"
-    # articles = (
-    #     get_faiss_recommendations(request.user.id, 20)
-    #     if use_sbert
-    #     else get_content_based_recommendations(request.user.id, 20)
-    # )
+    use_sbert = request.GET.    get("use_sbert", "false").lower() == "true"
+    articles = (
+        get_faiss_recommendations(request.user.id, 20)
+        if use_sbert
+        else get_content_based_recommendations(request.user.id, 20)
+    )
     articles = Article.objects.all()
     return render(request, "core/personalized_feed.html", {"articles": articles})
 
@@ -88,24 +111,46 @@ def event_clusters(request):
         {"clusters": EventCluster.objects.all().prefetch_related("articles")},
     )
 
-
+@require_http_methods(["GET", "POST"])
 def generate_article_summary(request, article_id):
     article = get_object_or_404(Article, id=article_id)
-    summary = summarize_article(article.content)
-    article.article_summary = summary
-    article.save()
-    messages.success(request, "Article summary generated successfully!")
-    return redirect("article_detail", article_id=article.id)
+    
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        summary = summarize_article(article.raw_content)
+        article.article_summary = summary
+        article.save()
+        return JsonResponse({"success": True, "summary": summary})
+    else:
+        summary = summarize_article(article.raw_content)
+        article.article_summary = summary
+        article.save()
+        messages.success(request, "Article summary generated successfully!")
+        return redirect("article_detail", pk=article.id)
 
 
+
+@require_http_methods(["GET", "POST"])
 def detect_article_fake_news(request, article_id):
     article = get_object_or_404(Article, id=article_id)
-    is_fake, confidence = detect_fake_news(article.content)
-    article.is_fake_news = is_fake
-    article.fake_news_confidence = confidence
-    article.save()
-    messages.success(request, "Fake news detection completed!")
-    return redirect("article_detail", article_id=article.id)
+    
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        is_fake, confidence = detect_fake_news(article.raw_content)
+        article.is_fake_news = is_fake
+        article.fake_news_confidence = confidence
+        article.save()
+        return JsonResponse({
+            "success": True,
+            "is_fake": is_fake,
+            "confidence": confidence
+        })
+    else:
+        is_fake, confidence = detect_fake_news(article.raw_content)
+        article.is_fake_news = is_fake
+        article.fake_news_confidence = confidence
+        article.save()
+        messages.success(request, "Fake news detection completed!")
+        return redirect("article_detail", pk=article.id)
+
 
 
 def batch_process_articles(request):
@@ -131,8 +176,16 @@ def batch_process_articles(request):
 @require_http_methods(["POST"])
 def translate_article_view(request, article_id):
     target_lang = request.POST.get('target_lang', 'en')
-    task = translate_article_task.delay(article_id, target_lang)
-    return JsonResponse({
-        'task_id': task.id,
-        'status_url': f'/tasks/status/{task.id}/'
-    })
+    try:
+        task = translate_article_content.apply_async(
+            args=(article_id, target_lang),
+            queue='translations'
+        )
+        return JsonResponse({
+            'task_id': task.id,
+            'status_url': f'/tasks/status/{task.id}/'
+        })
+    except Exception as e:
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)

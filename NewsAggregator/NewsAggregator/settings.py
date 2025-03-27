@@ -13,7 +13,9 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
-LIBRETRANSLATE_URL = 'http://localhost:5000'
+LIBRETRANSLATE_API = "http://localhost:5000"
+LIBRETRANSLATE_TIMEOUT = 30
+
 
 DEBUG = True
 
@@ -29,6 +31,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_celery_results",
     "core",
 ]
 
@@ -80,14 +83,23 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_BROKER_URL = "redis://localhost:6380/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6380/0"
 CELERY_BEAT_SCHEDULE = {
     "scrape-articles": {
         "task": "core.tasks.scrape_articles",
         "schedule": 3600,
     },
+    "update-event-clusters": {
+        "task": "core.tasks.update_event_clusters",
+        "schedule": 3600,
+    },
 }
-CELERY_RESULT_BACKEND = "django-db"
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = 'UTC'
 
 
 LANGUAGE_CODE = "en-us"

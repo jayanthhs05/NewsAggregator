@@ -19,3 +19,7 @@ app.conf.beat_schedule = {
         'schedule': crontab(hour=3, minute=0),
     },
 }
+
+app.conf.task_routes = {
+    'core.tasks.translate_article_content': {'queue': 'translations'},
+}

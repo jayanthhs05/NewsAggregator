@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2 class="mb-4">News Events</h2>
+
+{% for cluster in clusters %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h3>{{ cluster.name }}</h3>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for article in cluster.articles.all %}
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ article.title }}</h5>
+                        <p class="card-text text-muted small">
+                            {{ article.source.name }} - {{ article.publication_date|date:"M d, Y H:i" }}
+                        </p>
+                        <a href="{% url 'article_detail' article.id %}" class="btn btn-sm btn-outline-primary">Read</a>
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div class="col-12">
+                <p>No articles in this cluster</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% empty %}
+<div class="alert alert-info">No event clusters found</div>
+{% endfor %}
+{% endblock %}

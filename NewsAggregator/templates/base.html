@@ -11,6 +11,9 @@
         <div class="container">
             <a class="navbar-brand" href="{% url 'dashboard' %}">News Aggregator</a>
             <div class="navbar-collapse">
+                <div class="navbar-nav me-auto">
+                    <a class="nav-link" href="{% url 'event_clusters' %}">Event Clusters</a>
+                </div>
                 <div class="navbar-nav ms-auto">
                     {% if user.is_authenticated %}
                         <form method="post" action="{% url 'logout' %}">
@@ -29,5 +32,8 @@
     <div class="container mt-4">
         {% block content %}{% endblock %}
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_scripts %}{% endblock %}
 </body>
 </html>

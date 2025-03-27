@@ -18,13 +18,13 @@ def translate_article_content(text, target_lang):
         raise ValueError(f"Unsupported language: {target_lang}")
     
     response = requests.post(
-        f'{settings.LIBRETRANSLATE_URL}/translate',
+        f'{settings.LIBRETRANSLATE_API}/translate',
         json={
             'q': text,
             'source': 'en',
             'target': target_lang,
             'format': 'text'
         },
-        timeout=15
+        timeout=settings.LIBRETRANSLATE_TIMEOUT
     )
     return response.json()['translatedText']

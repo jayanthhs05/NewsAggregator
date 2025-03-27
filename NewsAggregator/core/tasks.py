@@ -6,22 +6,49 @@ from .utils.recommendations import build_tfidf_matrix
 from .utils.article_summarizer import summarize_article
 from .utils.fake_news_detector import detect_fake_news
 from .utils.translation import translate_article_content
+from libretranslatepy import LibreTranslateAPI
+from django.conf import settings
+import logging
+from celery.result import AsyncResult
+
+logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, max_retries=3)
-def translate_article_task(self, article_id, target_lang='en'):
+def translate_article_content(self, article_id, target_lang):
     try:
+        lt = LibreTranslateAPI(settings.LIBRETRANSLATE_API)
         article = Article.objects.get(id=article_id)
-        translated = translate_article_content(
-            article.content,
-            target_lang=target_lang
-        )
-        if translated:
-            article.translated_content = translated
-            article.translation_language = target_lang
-            article.save(update_fields=['translated_content', 'translation_language'])
-        return translated
-    except Article.DoesNotExist:
-        self.retry(countdown=10)
+        content = article.processed_content or article.raw_content
+        if not content:
+            raise ValueError("No content to translate")
+            
+        chunk_size = 5000
+        chunks = [content[i:i+chunk_size]
+            for i in range(0, len(content), chunk_size)]
+        translated_chunks = []
+        for chunk in chunks:
+            translated = lt.translate(
+                q=chunk,
+                source="en",
+                target=target_lang,
+                timeout=settings.LIBRETRANSLATE_TIMEOUT
+            )
+            translated_chunks.append(translated)
+        article.translated_content = " ".join(translated_chunks)
+        article.save()
+        return True
+    except Exception as e:
+        logger.error(f"Translation failed: {str(e)}")
+        self.retry(countdown=30, exc=e)
+        return False
+
+@shared_task
+def check_translation_status(task_id):
+    task = AsyncResult(task_id)
+    return {
+        'status': task.status,
+        'result': task.result
+    }
 
 
 @shared_task(rate_limit="5/m")
@@ -46,7 +73,7 @@ def update_event_clusters():
     cluster_recent_articles(days=7)
 
 
-@shared_task(rate_limit="1/d")
+@shared_task(rate_limit="1/h")
 def update_tfidf_matrix():
     build_tfidf_matrix()
 

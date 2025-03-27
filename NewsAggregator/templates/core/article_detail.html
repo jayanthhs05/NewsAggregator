@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-
 {% block content %}
 <div class="row">
     <div class="col-md-8 offset-md-2">
@@ -14,68 +13,230 @@
                 {{ article.processed_content|linebreaks }}
             </div>
             
-            <div class="alert alert-secondary summary-box" style="display: none;">
-                <h4>Summary</h4>
-                <div class="summary-content"></div>
-            </div>
-            
-            <div class="btn-group">
-                <button class="btn btn-outline-primary summarize-btn" data-id="{{ article.id }}">
-                    Show Summary
-                </button>
-                <div class="dropdown">
-                    <button class="btn btn-outline-info dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                        Translate
-                    </button>
-                    <ul class="dropdown-menu">
-                        <li><a class="dropdown-item translate-btn" href="
-                        <li><a class="dropdown-item translate-btn" href="
-                    </ul>
+            {% if article.article_summary %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3>Summary</h3>
+                </div>
+                <div class="card-body">
+                    <p>{{ article.article_summary }}</p>
                 </div>
             </div>
+            {% endif %}
+
+            <div class="card mb-4">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h3>Article Actions</h3>
+                        <div class="btn-group">
+                            <button class="btn btn-primary summarize-btn" 
+                                    data-id="{{ article.id }}">
+                                {% if article.article_summary %}Regenerate{% else %}Generate{% endif %} Summary
+                            </button>
+                            <button class="btn btn-warning detect-fake-news-btn" 
+                                    data-id="{{ article.id }}">
+                                Detect Fake News
+                            </button>
+                            <div class="dropdown">
+                                <button class="btn btn-info dropdown-toggle" 
+                                        type="button" 
+                                        data-bs-toggle="dropdown">
+                                    Translate
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item translate-btn" href="#" 
+                                           data-lang="es">Spanish</a></li>
+                                    <li><a class="dropdown-item translate-btn" href="#" 
+                                           data-lang="fr">French</a></li>
+                                    <li><a class="dropdown-item translate-btn" href="#" 
+                                           data-lang="de">German</a></li>
+                                    <li><a class="dropdown-item translate-btn" href="#" 
+                                           data-lang="it">Italian</a></li>
+                                    <li><a class="dropdown-item translate-btn" href="#" 
+                                           data-lang="pt">Portuguese</a></li>
+                                    <li><a class="dropdown-item translate-btn" href="#" 
+                                           data-lang="en">Original (English)</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if article.is_fake_news is not None %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3>Fake News Analysis</h3>
+                </div>
+                <div class="card-body">
+                    <div class="alert {% if article.is_fake_news %}alert-danger{% else %}alert-success{% endif %}">
+                        <h4 class="mb-0">
+                            {% if article.is_fake_news %}
+                                Potential Fake News ({{ article.fake_news_confidence|floatformat:2 }}% confidence)
+                            {% else %}
+                                Likely Authentic ({{ article.fake_news_confidence|floatformat:2 }}% confidence)
+                            {% endif %}
+                        </h4>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </article>
     </div>
 </div>
 
-<div class="card mt-4">
-    <div class="card-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <h3>Article Actions</h3>
-            <div>
-                <a href="{% url 'generate_summary' article.id %}" class="btn btn-primary">Generate Summary</a>
-                <a href="{% url 'detect_fake_news' article.id %}" class="btn btn-warning">Detect Fake News</a>
-            </div>
-        </div>
-    </div>
-</div>
+{% csrf_token %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const contentArea = document.querySelector('.content-area');
+    const originalContent = contentArea.innerHTML; 
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    let activeTranslationTask = null;
 
-{% if article.article_summary %}
-<div class="card mt-4">
-    <div class="card-header">
-        <h3>Summary</h3>
-    </div>
-    <div class="card-body">
-        <p>{{ article.article_summary }}</p>
-    </div>
-</div>
-{% endif %}
+    
+    function checkTranslationStatus(taskId, lang) {
+        let retries = 0;
+        const maxRetries = 15; 
+        const pollInterval = 2000; 
+        
+        function poll() {
+            fetch(`/main/tasks/status/${taskId}/`)
+                .then(response => {
+                    if(!response.ok) throw new Error('Status check failed');
+                    return response.json();
+                })
+                .then(data => {
+                    if(data.status === 'SUCCESS') {
+                        fetch(`/main/article/{{ article.id }}/content/?lang=${lang}`)
+                            .then(r => {
+                                if(!r.ok) throw new Error('Content fetch failed');
+                                return r.json();
+                            })
+                            .then(data => {
+                                contentArea.innerHTML = data.translated_content;
+                                activeTranslationTask = null;
+                            });
+                    } else if(data.status === 'FAILURE' || retries >= maxRetries) {
+                        contentArea.innerHTML = originalContent;
+                        alert('Translation failed. Please try again later.');
+                        activeTranslationTask = null;
+                    } else {
+                        retries++;
+                        setTimeout(poll, pollInterval);
+                    }
+                })
+                .catch(error => {
+                    console.error('Polling error:', error);
+                    if(retries < maxRetries) {
+                        retries++;
+                        setTimeout(poll, pollInterval);
+                    } else {
+                        contentArea.innerHTML = originalContent;
+                        alert('Translation service unavailable. Please try again later.');
+                        activeTranslationTask = null;
+                    }
+                });
+        }
+        poll();
+    }
 
-{% if article.is_fake_news is not None %}
-<div class="card mt-4">
-    <div class="card-header">
-        <h3>Fake News Detection</h3>
-    </div>
-    <div class="card-body">
-        <div class="alert {% if article.is_fake_news %}alert-danger{% else %}alert-success{% endif %}">
-            <h4>
-                {% if article.is_fake_news %}
-                    This article might contain fake news ({{ article.fake_news_confidence|floatformat:2 }}% confidence)
-                {% else %}
-                    This article appears to be reliable ({{ article.fake_news_confidence|floatformat:2 }}% confidence)
-                {% endif %}
-            </h4>
-        </div>
-    </div>
-</div>
-{% endif %}
+    
+    document.querySelectorAll('.summarize-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const articleId = this.dataset.id;
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Processing...';
+            
+            fetch(`/main/article/${articleId}/summarize/`, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': csrfToken
+                }
+            }).then(response => {
+                if(response.ok) {
+                    window.location.reload();
+                }
+            });
+        });
+    });
+
+    
+    document.querySelectorAll('.detect-fake-news-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const articleId = this.dataset.id;
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Analyzing...';
+            
+            fetch(`/main/article/${articleId}/detect-fake-news/`, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': csrfToken
+                }
+            }).then(response => {
+                if(response.ok) {
+                    window.location.reload();
+                }
+            });
+        });
+    });
+
+    
+    document.querySelectorAll('.translate-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const lang = this.dataset.lang;
+            
+            
+            if(activeTranslationTask) {
+                console.log('Cancelling previous translation task');
+                fetch(`/main/tasks/status/${activeTranslationTask}/`, {
+                    method: 'DELETE'
+                });
+            }
+
+            if(lang === 'en') {
+                contentArea.innerHTML = originalContent;
+                activeTranslationTask = null;
+                return;
+            }
+
+            const loadingHTML = `
+                <div class="text-center my-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2">Translating to ${this.textContent}...</p>
+                    <small class="text-muted">This may take up to 30 seconds</small>
+                </div>`;
+            
+            contentArea.innerHTML = loadingHTML;
+            
+            fetch(`/main/article/{{ article.id }}/translate/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken
+                },
+                body: `target_lang=${lang}`
+            })
+            .then(response => {
+                if(!response.ok) throw new Error('Translation init failed');
+                return response.json();
+            })
+            .then(data => {
+                if(data.task_id) {
+                    activeTranslationTask = data.task_id;
+                    checkTranslationStatus(data.task_id, lang);
+                }
+            })
+            .catch(error => {
+                console.error('Translation error:', error);
+                contentArea.innerHTML = originalContent;
+                activeTranslationTask = null;
+                alert('Translation service unavailable. Please try again later.');
+            });
+        });
+    });
+});
+</script>
 {% endblock %}
