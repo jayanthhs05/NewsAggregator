@@ -88,7 +88,7 @@ CELERY_RESULT_BACKEND = "redis://localhost:6380/0"
 CELERY_BEAT_SCHEDULE = {
     "scrape-articles": {
         "task": "core.tasks.scrape_articles",
-        "schedule": 3600,
+        "schedule": 1800,
     },
     "update-event-clusters": {
         "task": "core.tasks.update_event_clusters",

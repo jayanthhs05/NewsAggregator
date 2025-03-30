@@ -13,6 +13,7 @@ from celery.result import AsyncResult
 
 logger = logging.getLogger(__name__)
 
+
 @shared_task(bind=True, max_retries=3)
 def translate_article_content(self, article_id, target_lang):
     try:
@@ -21,17 +22,18 @@ def translate_article_content(self, article_id, target_lang):
         content = article.processed_content or article.raw_content
         if not content:
             raise ValueError("No content to translate")
-            
+
         chunk_size = 5000
-        chunks = [content[i:i+chunk_size]
-            for i in range(0, len(content), chunk_size)]
+        chunks = [
+            content[i : i + chunk_size] for i in range(0, len(content), chunk_size)
+        ]
         translated_chunks = []
         for chunk in chunks:
             translated = lt.translate(
                 q=chunk,
                 source="en",
                 target=target_lang,
-                timeout=settings.LIBRETRANSLATE_TIMEOUT
+                timeout=settings.LIBRETRANSLATE_TIMEOUT,
             )
             translated_chunks.append(translated)
         article.translated_content = " ".join(translated_chunks)
@@ -42,30 +44,69 @@ def translate_article_content(self, article_id, target_lang):
         self.retry(countdown=30, exc=e)
         return False
 
+
 @shared_task
 def check_translation_status(task_id):
     task = AsyncResult(task_id)
-    return {
-        'status': task.status,
-        'result': task.result
-    }
+    return {"status": task.status, "result": task.result}
 
 
 @shared_task(rate_limit="5/m")
 def scrape_articles():
-    for source in NewsSource.objects.filter(is_active=True):
-        if "apnews" in source.base_url:
-            articles = scrape_apnews(source.base_url)
+    """
+    Celery task to scrape articles from active news sources.
+    """
+    from .utils.scrapers import get_scraper_for_url, parse_date
+    import logging
 
-        for article_data in articles:
-            Article.objects.update_or_create(
-                source=source,
-                title=article_data["title"],
-                defaults={
-                    "raw_content": article_data["content"],
-                    "publication_date": article_data["date"],
-                },
+    logger = logging.getLogger(__name__)
+
+    for source in NewsSource.objects.filter(is_active=True):
+        try:
+
+            scraper = get_scraper_for_url(source.base_url)
+
+            if not scraper:
+                logger.warning(
+                    f"No scraper found for {source.name} ({source.base_url})"
+                )
+                continue
+
+            logger.info(f"Scraping articles from {source.name} ({source.base_url})")
+            articles = scraper(source.base_url)
+
+            if not articles:
+                logger.warning(f"No articles found from {source.name}")
+                continue
+
+            new_count = 0
+            for article_data in articles:
+                try:
+
+                    existing = Article.objects.filter(
+                        source=source, title=article_data["title"]
+                    ).exists()
+
+                    if not existing:
+                        Article.objects.create(
+                            source=source,
+                            title=article_data["title"],
+                            raw_content=article_data["content"],
+                            processed_content=article_data["content"],
+                            publication_date=parse_date(article_data["date"]),
+                        )
+                        new_count += 1
+                except Exception as e:
+                    logger.error(
+                        f"Error saving article '{article_data.get('title', 'Unknown')}': {str(e)}"
+                    )
+
+            logger.info(
+                f"Scraped {len(articles)} articles from {source.name}, added {new_count} new articles"
             )
+
+        except Exception as e:
+            logger.error(f"Error scraping {source.name}: {str(e)}")
 
 
 @shared_task(rate_limit="1/h")
