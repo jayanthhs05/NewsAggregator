@@ -22,9 +22,28 @@ from celery.result import AsyncResult
 @require_http_methods(["GET"])
 def task_status(request, task_id):
     task = AsyncResult(task_id)
+    if task.ready():
+        if task.successful():
+            result = task.result
+            # If the result is a string starting with "Translation failed", it's an error
+            if isinstance(result, str) and result.startswith("Translation failed"):
+                return JsonResponse({
+                    "status": "FAILURE",
+                    "result": result
+                })
+            # Otherwise, it's the translated content
+            return JsonResponse({
+                "status": "SUCCESS",
+                "result": result
+            })
+        else:
+            return JsonResponse({
+                "status": "FAILURE",
+                "result": str(task.result)
+            })
     return JsonResponse({
         "status": task.status,
-        "result": str(task.result) if task.ready() else None
+        "result": None
     })
 
 
@@ -76,14 +95,21 @@ def signup(request):
 
 @login_required
 def personalized_feed(request):
-    use_sbert = request.GET.    get("use_sbert", "false").lower() == "true"
+    use_sbert = request.GET.get("use_sbert", "false").lower() == "true"
     articles = (
         get_faiss_recommendations(request.user.id, 20)
         if use_sbert
         else get_content_based_recommendations(request.user.id, 20)
     )
-    articles = Article.objects.all()
-    return render(request, "core/personalized_feed.html", {"articles": articles})
+    return render(
+        request,
+        "core/personalized_feed.html",
+        {
+            "articles": articles,
+            "use_sbert": use_sbert,
+            "recommendation_method": "FAISS (Semantic)" if use_sbert else "TF-IDF (Content-based)"
+        }
+    )
 
 
 @login_required

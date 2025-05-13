@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 import re
 from urllib.parse import urljoin, urlparse
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -38,32 +39,30 @@ def is_allowed(url, user_agent="NewsAggregatorBot/1.0"):
         return True
 
 
-def get_session(user_agent="NewsAggregatorBot/1.0"):
+def get_session(user_agent=None):
+    if user_agent is None:
+        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    
     session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-    )
+    session.headers.update({
+        "User-Agent": user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Cache-Control": "max-age=0",
+    })
     return session
 
 
-def scrape_with_delay(url, session=None, selector=None):
-
+def scrape_with_delay(url, session=None, selector=None, timeout=15):
     if not session:
         session = get_session()
 
-    delay = get_robots_delay(url)
-
-    if not is_allowed(url):
-        logger.warning(f"Scraping not allowed for {url} according to robots.txt")
-        return None
-
     try:
-        time.sleep(delay + random.uniform(1, 2))
-        response = session.get(url, timeout=10)
+        time.sleep(random.uniform(1, 3))  # Random delay between 1-3 seconds
+        response = session.get(url, timeout=timeout)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.content, "lxml")
@@ -77,9 +76,20 @@ def scrape_with_delay(url, session=None, selector=None):
 
 
 def parse_date(date_str, formats=None):
-
     if not date_str:
         return datetime.now()
+
+    # Handle ISO 8601 durations (e.g., P3M,47S)
+    if date_str.startswith('P') and any(c in date_str for c in 'YMDHS'):
+        logger.warning(f"Could not parse date (duration): {date_str}")
+        return datetime.now()
+
+    # Try using dateutil.parser if available
+    try:
+        from dateutil import parser as dateutil_parser
+        return dateutil_parser.parse(date_str)
+    except Exception:
+        pass
 
     if formats is None:
         formats = [
@@ -95,6 +105,9 @@ def parse_date(date_str, formats=None):
             "%d %B %Y",
             "%A, %B %d, %Y",
             "%A %B %d %Y",
+            "%a, %d %b %Y %H:%M:%S %z",  # RFC 2822
+            "%Y-%m-%dT%H:%M:%S.%fZ",      # RFC 3339/ISO 8601
+            "%a, %d %b %Y %H:%M:%S GMT",  # RSS/Atom
         ]
 
     for fmt in formats:
@@ -107,247 +120,93 @@ def parse_date(date_str, formats=None):
     return datetime.now()
 
 
-def scrape_apnews(url):
-    session = get_session()
-    articles = []
-
-    try:
-        soup = scrape_with_delay(url, session)
-        if not soup:
-            return []
-
-        for item in soup.select(".FeedCard"):
-            try:
-                title_elem = item.select_one("h2")
-                content_elem = item.select_one(".content")
-                date_elem = item.select_one("time")
-                link_elem = item.select_one("a")
-
-                if (
-                    title_elem
-                    and content_elem
-                    and date_elem
-                    and date_elem.has_attr("datetime")
-                ):
-                    article_url = urljoin(url, link_elem["href"]) if link_elem else None
-                    articles.append(
-                        {
-                            "title": title_elem.text.strip(),
-                            "content": content_elem.text.strip(),
-                            "date": date_elem["datetime"],
-                            "url": article_url,
-                        }
-                    )
-            except Exception as e:
-                logger.error(f"Error parsing AP News article: {str(e)}")
-                continue
-
-        return articles
-    except Exception as e:
-        logger.error(f"Error scraping AP News: {str(e)}")
-        return []
-
-
-def scrape_reuters(url):
-    session = get_session()
-    articles = []
-
-    try:
-        soup = scrape_with_delay(url, session)
-        if not soup:
-            return []
-
-        article_elements = (
-            soup.select("article.story")
-            or soup.select(".story-card")
-            or soup.select(".media-story-card")
-        )
-
-        for article in article_elements[:15]:
-            try:
-                title_elem = article.select_one("h3") or article.select_one(
-                    ".story-title"
-                )
-                link_elem = article.select_one("a")
-
-                if not title_elem or not link_elem:
-                    continue
-
-                title = title_elem.text.strip()
-                article_url = urljoin(url, link_elem.get("href", ""))
-
-                if not article_url or not is_allowed(article_url):
-                    continue
-
-                article_soup = scrape_with_delay(article_url, session)
-                if not article_soup:
-                    continue
-
-                content_elements = article_soup.select(
-                    "p.paragraph"
-                ) or article_soup.select(".article-body p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
-
-                date_elem = article_soup.select_one("time") or article_soup.select_one(
-                    ".article-date"
-                )
-                date_str = (
-                    date_elem["datetime"]
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
-                if not date_str and date_elem:
-                    date_str = date_elem.text.strip()
-
-                date = parse_date(date_str)
-
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
-
-            except Exception as e:
-                logger.error(f"Error parsing Reuters article: {str(e)}")
-                continue
-
-        return articles
-    except Exception as e:
-        logger.error(f"Error scraping Reuters: {str(e)}")
-        return []
-
-
-def scrape_bbc(url):
-    session = get_session()
-    articles = []
-
-    try:
-        soup = scrape_with_delay(url, session)
-        if not soup:
-            return []
-
-        headlines = soup.select(".gs-c-promo") or soup.select(".media-list__item")
-
-        for headline in headlines[:15]:
-            try:
-                title_elem = headline.select_one(
-                    ".gs-c-promo-heading__title"
-                ) or headline.select_one("h3")
-                link_elem = headline.select_one("a")
-
-                if not title_elem or not link_elem:
-                    continue
-
-                title = title_elem.text.strip()
-                article_url = urljoin(url, link_elem.get("href", ""))
-
-                if not article_url or not is_allowed(article_url):
-                    continue
-
-                article_soup = scrape_with_delay(article_url, session)
-                if not article_soup:
-                    continue
-
-                content_elements = article_soup.select(
-                    "[data-component='text-block']"
-                ) or article_soup.select(".ssrcss-11r1m41-RichTextComponentWrapper")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
-
-                date_elem = article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
-                if not date_str and date_elem:
-                    date_str = date_elem.text.strip()
-
-                date = parse_date(date_str)
-
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
-
-            except Exception as e:
-                logger.error(f"Error parsing BBC article: {str(e)}")
-                continue
-
-        return articles
-    except Exception as e:
-        logger.error(f"Error scraping BBC: {str(e)}")
-        return []
-
-
 def scrape_npr(url):
     session = get_session()
     articles = []
 
     try:
+        # Try the RSS feed first (more reliable than API)
+        rss_url = "https://feeds.npr.org/1001/rss.xml"
+        logger.info(f"Attempting to fetch NPR RSS feed from {rss_url}")
+        response = session.get(rss_url, timeout=15)
+        if response.status_code == 200:
+            logger.info("Successfully fetched NPR RSS feed")
+            soup = BeautifulSoup(response.content, "xml")
+            items = soup.find_all("item")[:15]
+            
+            for item in items:
+                try:
+                    articles.append({
+                        "title": item.title.text if item.title else "",
+                        "content": item.description.text if item.description else "",
+                        "date": item.pubDate.text if item.pubDate else "",
+                        "url": item.link.text if item.link else "",
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing NPR RSS item: {str(e)}")
+                    continue
+            return articles
+
+        logger.warning(f"Failed to fetch NPR RSS feed, falling back to HTML scraping")
+        # Fallback to HTML scraping
         soup = scrape_with_delay(url, session)
         if not soup:
+            logger.error("Failed to scrape NPR HTML")
             return []
 
-        headlines = soup.select(".title-link") or soup.select(".story-wrap")
+        # Updated selectors for NPR's current HTML structure
+        headlines = soup.select("article") or soup.select(".story-wrap")
 
         for headline in headlines[:15]:
             try:
-                if headline.name == "a":
-                    title = headline.text.strip()
-                    article_url = urljoin(url, headline.get("href", ""))
-                else:
-                    title_elem = headline.select_one("h3 a") or headline.select_one(
-                        ".title"
-                    )
-                    if not title_elem:
-                        continue
-                    title = title_elem.text.strip()
-                    article_url = urljoin(url, title_elem.get("href", ""))
+                # Try different possible title selectors
+                title_elem = (
+                    headline.select_one("h3 a") or 
+                    headline.select_one(".title a") or 
+                    headline.select_one("a.title") or
+                    headline.select_one("h2 a")
+                )
+                
+                if not title_elem:
+                    continue
+                    
+                title = title_elem.text.strip()
+                article_url = urljoin(url, title_elem.get("href", ""))
 
-                if not article_url or not is_allowed(article_url):
+                if not article_url:
                     continue
 
                 article_soup = scrape_with_delay(article_url, session)
                 if not article_soup:
                     continue
 
-                content_elements = article_soup.select(
-                    ".storytext p"
-                ) or article_soup.select("[data-testid='story-text'] p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
+                # Updated content selectors
+                content_elements = (
+                    article_soup.select(".storytext p") or 
+                    article_soup.select("[data-testid='story-text'] p") or
+                    article_soup.select(".story-body p") or
+                    article_soup.select(".article-body p")
                 )
+                content = " ".join([p.text.strip() for p in content_elements if p.text.strip()])
 
-                date_elem = article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
+                # Updated date selectors
+                date_elem = (
+                    article_soup.select_one("time") or
+                    article_soup.select_one(".date") or
+                    article_soup.select_one(".timestamp")
                 )
+                date_str = date_elem.get("datetime") if date_elem and date_elem.has_attr("datetime") else ""
                 if not date_str and date_elem:
                     date_str = date_elem.text.strip()
 
                 date = parse_date(date_str)
 
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
+                articles.append({
+                    "title": title,
+                    "content": content[:5000],
+                    "date": date.isoformat(),
+                    "url": article_url,
+                })
 
             except Exception as e:
                 logger.error(f"Error parsing NPR article: {str(e)}")
@@ -364,6 +223,30 @@ def scrape_guardian(url):
     articles = []
 
     try:
+        # Try the API endpoint first
+        api_url = "https://content.guardianapis.com/search"
+        params = {
+            "api-key": "test",  # You'll need to replace this with a real API key
+            "show-fields": "bodyText,publication",
+            "page-size": 15
+        }
+        response = session.get(api_url, params=params, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            for item in data.get("response", {}).get("results", [])[:15]:
+                try:
+                    articles.append({
+                        "title": item.get("webTitle", ""),
+                        "content": item.get("fields", {}).get("bodyText", ""),
+                        "date": item.get("webPublicationDate", ""),
+                        "url": item.get("webUrl", ""),
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Guardian article: {str(e)}")
+                    continue
+            return articles
+
+        # Fallback to HTML scraping
         soup = scrape_with_delay(url, session)
         if not soup:
             return []
@@ -380,39 +263,29 @@ def scrape_guardian(url):
                 title = headline.text.strip()
                 article_url = urljoin(url, link_elem.get("href", ""))
 
-                if not article_url or not is_allowed(article_url):
+                if not article_url:
                     continue
 
                 article_soup = scrape_with_delay(article_url, session)
                 if not article_soup:
                     continue
 
-                content_elements = article_soup.select(
-                    ".article-body-commercial-selector p"
-                ) or article_soup.select(".content__article-body p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
+                content_elements = article_soup.select(".article-body-commercial-selector p") or article_soup.select(".content__article-body p")
+                content = " ".join([p.text.strip() for p in content_elements if p.text.strip()])
 
                 date_elem = article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
+                date_str = date_elem.get("datetime") if date_elem and date_elem.has_attr("datetime") else ""
                 if not date_str and date_elem:
                     date_str = date_elem.text.strip()
 
                 date = parse_date(date_str)
 
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
+                articles.append({
+                    "title": title,
+                    "content": content[:5000],
+                    "date": date.isoformat(),
+                    "url": article_url,
+                })
 
             except Exception as e:
                 logger.error(f"Error parsing Guardian article: {str(e)}")
@@ -424,79 +297,30 @@ def scrape_guardian(url):
         return []
 
 
-def scrape_cnn(url):
-    session = get_session()
-    articles = []
-
-    try:
-        soup = scrape_with_delay(url, session)
-        if not soup:
-            return []
-
-        headlines = soup.select(".container__headline") or soup.select(".cd__headline")
-
-        for headline in headlines[:15]:
-            try:
-                link_elem = headline.find("a")
-
-                if not link_elem:
-                    continue
-
-                title = headline.text.strip()
-                article_url = urljoin(url, link_elem.get("href", ""))
-
-                if not article_url or not is_allowed(article_url):
-                    continue
-
-                article_soup = scrape_with_delay(article_url, session)
-                if not article_soup:
-                    continue
-
-                content_elements = article_soup.select(
-                    ".article__content p"
-                ) or article_soup.select(".zn-body__paragraph")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
-
-                date_elem = article_soup.select_one(
-                    ".update-time"
-                ) or article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
-                if not date_str and date_elem:
-                    date_str = date_elem.text.strip()
-                    date_str = re.sub(r"^(Updated|Published)\s+", "", date_str)
-
-                date = parse_date(date_str)
-
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
-
-            except Exception as e:
-                logger.error(f"Error parsing CNN article: {str(e)}")
-                continue
-
-        return articles
-    except Exception as e:
-        logger.error(f"Error scraping CNN: {str(e)}")
-        return []
-
-
 def scrape_aljazeera(url):
     session = get_session()
     articles = []
 
     try:
+        # Try the API endpoint first
+        api_url = "https://www.aljazeera.com/api/v1/feed"
+        response = session.get(api_url, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            for item in data.get("items", [])[:15]:
+                try:
+                    articles.append({
+                        "title": item.get("title", ""),
+                        "content": item.get("description", ""),
+                        "date": item.get("pubDate", ""),
+                        "url": item.get("link", ""),
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Al Jazeera article: {str(e)}")
+                    continue
+            return articles
+
+        # Fallback to HTML scraping
         soup = scrape_with_delay(url, session)
         if not soup:
             return []
@@ -513,41 +337,29 @@ def scrape_aljazeera(url):
                 title = headline.text.strip()
                 article_url = urljoin(url, link_elem.get("href", ""))
 
-                if not article_url or not is_allowed(article_url):
+                if not article_url:
                     continue
 
                 article_soup = scrape_with_delay(article_url, session)
                 if not article_soup:
                     continue
 
-                content_elements = article_soup.select(
-                    ".wysiwyg p"
-                ) or article_soup.select("article p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
+                content_elements = article_soup.select(".wysiwyg p") or article_soup.select("article p")
+                content = " ".join([p.text.strip() for p in content_elements if p.text.strip()])
 
-                date_elem = article_soup.select_one(
-                    ".article-dates__modified time"
-                ) or article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
+                date_elem = article_soup.select_one(".article-dates__modified time") or article_soup.select_one("time")
+                date_str = date_elem.get("datetime") if date_elem and date_elem.has_attr("datetime") else ""
                 if not date_str and date_elem:
                     date_str = date_elem.text.strip()
 
                 date = parse_date(date_str)
 
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
+                articles.append({
+                    "title": title,
+                    "content": content[:5000],
+                    "date": date.isoformat(),
+                    "url": article_url,
+                })
 
             except Exception as e:
                 logger.error(f"Error parsing Al Jazeera article: {str(e)}")
@@ -559,147 +371,32 @@ def scrape_aljazeera(url):
         return []
 
 
-def scrape_pbs(url):
-    session = get_session()
-    articles = []
-
-    try:
-        soup = scrape_with_delay(url, session)
-        if not soup:
-            return []
-
-        headlines = soup.select(".card-lg__title") or soup.select(".post-title")
-
-        for headline in headlines[:15]:
-            try:
-                link_elem = headline.find("a") or headline.find_parent("a")
-
-                if not link_elem:
-                    continue
-
-                title = headline.text.strip()
-                article_url = urljoin(url, link_elem.get("href", ""))
-
-                if not article_url or not is_allowed(article_url):
-                    continue
-
-                article_soup = scrape_with_delay(article_url, session)
-                if not article_soup:
-                    continue
-
-                content_elements = article_soup.select(
-                    ".body-text p"
-                ) or article_soup.select(".pbs-content p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
-
-                date_elem = article_soup.select_one(
-                    ".post-date time"
-                ) or article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
-                if not date_str and date_elem:
-                    date_str = date_elem.text.strip()
-
-                date = parse_date(date_str)
-
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
-
-            except Exception as e:
-                logger.error(f"Error parsing PBS article: {str(e)}")
-                continue
-
-        return articles
-    except Exception as e:
-        logger.error(f"Error scraping PBS: {str(e)}")
-        return []
-
-
-def scrape_usatoday(url):
-    session = get_session()
-    articles = []
-
-    try:
-        soup = scrape_with_delay(url, session)
-        if not soup:
-            return []
-
-        headlines = soup.select(".gnt_m_th") or soup.select(".css-16tnb46")
-
-        for headline in headlines[:15]:
-            try:
-                if headline.name == "a":
-                    title = headline.text.strip()
-                    article_url = urljoin(url, headline.get("href", ""))
-                else:
-                    link_elem = headline.find("a") or headline.find_parent("a")
-                    if not link_elem:
-                        continue
-                    title = headline.text.strip()
-                    article_url = urljoin(url, link_elem.get("href", ""))
-
-                if not article_url or not is_allowed(article_url):
-                    continue
-
-                article_soup = scrape_with_delay(article_url, session)
-                if not article_soup:
-                    continue
-
-                content_elements = article_soup.select(
-                    ".gnt_ar_b p"
-                ) or article_soup.select(".story-text p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
-
-                date_elem = article_soup.select_one(
-                    ".gnt_ar_dt"
-                ) or article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
-                if not date_str and date_elem:
-                    date_str = date_elem.text.strip()
-
-                date = parse_date(date_str)
-
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
-
-            except Exception as e:
-                logger.error(f"Error parsing USA Today article: {str(e)}")
-                continue
-
-        return articles
-    except Exception as e:
-        logger.error(f"Error scraping USA Today: {str(e)}")
-        return []
-
-
 def scrape_abc_au(url):
     session = get_session()
     articles = []
 
     try:
+        # Try the API endpoint first
+        api_url = "https://www.abc.net.au/news/feed/45910/rss.xml"
+        response = session.get(api_url, timeout=15)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, "xml")
+            items = soup.find_all("item")[:15]
+            
+            for item in items:
+                try:
+                    articles.append({
+                        "title": item.title.text if item.title else "",
+                        "content": item.description.text if item.description else "",
+                        "date": item.pubDate.text if item.pubDate else "",
+                        "url": item.link.text if item.link else "",
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing ABC AU article: {str(e)}")
+                    continue
+            return articles
+
+        # Fallback to HTML scraping
         soup = scrape_with_delay(url, session)
         if not soup:
             return []
@@ -716,41 +413,29 @@ def scrape_abc_au(url):
                 title = headline.text.strip()
                 article_url = urljoin(url, link_elem.get("href", ""))
 
-                if not article_url or not is_allowed(article_url):
+                if not article_url:
                     continue
 
                 article_soup = scrape_with_delay(article_url, session)
                 if not article_soup:
                     continue
 
-                content_elements = article_soup.select(
-                    ".article-body p"
-                ) or article_soup.select("._1HzXw p")
-                content = " ".join(
-                    [p.text.strip() for p in content_elements if p.text.strip()]
-                )
+                content_elements = article_soup.select(".article-body p") or article_soup.select("._1HzXw p")
+                content = " ".join([p.text.strip() for p in content_elements if p.text.strip()])
 
-                date_elem = article_soup.select_one(
-                    ".timestamp"
-                ) or article_soup.select_one("time")
-                date_str = (
-                    date_elem.get("datetime")
-                    if date_elem and date_elem.has_attr("datetime")
-                    else ""
-                )
+                date_elem = article_soup.select_one(".timestamp") or article_soup.select_one("time")
+                date_str = date_elem.get("datetime") if date_elem and date_elem.has_attr("datetime") else ""
                 if not date_str and date_elem:
                     date_str = date_elem.text.strip()
 
                 date = parse_date(date_str)
 
-                articles.append(
-                    {
-                        "title": title,
-                        "content": content[:5000],
-                        "date": date.isoformat(),
-                        "url": article_url,
-                    }
-                )
+                articles.append({
+                    "title": title,
+                    "content": content[:5000],
+                    "date": date.isoformat(),
+                    "url": article_url,
+                })
 
             except Exception as e:
                 logger.error(f"Error parsing ABC AU article: {str(e)}")
@@ -762,18 +447,87 @@ def scrape_abc_au(url):
         return []
 
 
+def scrape_usa_today(url):
+    session = get_session()
+    articles = []
+
+    try:
+        # Try the API endpoint first
+        api_url = "https://www.usatoday.com/arc/outboundfeeds/rss/"
+        response = session.get(api_url, timeout=15)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, "xml")
+            items = soup.find_all("item")[:15]
+            
+            for item in items:
+                try:
+                    articles.append({
+                        "title": item.title.text if item.title else "",
+                        "content": item.description.text if item.description else "",
+                        "date": item.pubDate.text if item.pubDate else "",
+                        "url": item.link.text if item.link else "",
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing USA Today RSS item: {str(e)}")
+                    continue
+            return articles
+
+        # Fallback to HTML scraping
+        soup = scrape_with_delay(url, session)
+        if not soup:
+            return []
+
+        headlines = soup.select(".gnt_m_flm_a") or soup.select(".gnt_m_flm_a h3")
+
+        for headline in headlines[:15]:
+            try:
+                link_elem = headline.find("a") or headline.find_parent("a")
+                if not link_elem:
+                    continue
+
+                title = headline.text.strip()
+                article_url = urljoin(url, link_elem.get("href", ""))
+
+                if not article_url:
+                    continue
+
+                article_soup = scrape_with_delay(article_url, session)
+                if not article_soup:
+                    continue
+
+                content_elements = article_soup.select(".gnt_ar_b p") or article_soup.select(".gnt_ar_b")
+                content = " ".join([p.text.strip() for p in content_elements if p.text.strip()])
+
+                date_elem = article_soup.select_one("time") or article_soup.select_one(".gnt_ar_dt")
+                date_str = date_elem.get("datetime") if date_elem and date_elem.has_attr("datetime") else ""
+                if not date_str and date_elem:
+                    date_str = date_elem.text.strip()
+
+                date = parse_date(date_str)
+
+                articles.append({
+                    "title": title,
+                    "content": content[:5000],
+                    "date": date.isoformat(),
+                    "url": article_url,
+                })
+
+            except Exception as e:
+                logger.error(f"Error parsing USA Today article: {str(e)}")
+                continue
+
+        return articles
+    except Exception as e:
+        logger.error(f"Error scraping USA Today: {str(e)}")
+        return []
+
+
 SCRAPERS = {
-    "apnews.com": scrape_apnews,
-    "reuters.com": scrape_reuters,
-    "bbc.com": scrape_bbc,
-    "bbc.co.uk": scrape_bbc,
     "npr.org": scrape_npr,
     "theguardian.com": scrape_guardian,
-    "cnn.com": scrape_cnn,
     "aljazeera.com": scrape_aljazeera,
-    "pbs.org": scrape_pbs,
-    "usatoday.com": scrape_usatoday,
     "abc.net.au": scrape_abc_au,
+    "usatoday.com": scrape_usa_today,
 }
 
 

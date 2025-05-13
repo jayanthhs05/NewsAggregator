@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h2>Your Personalized Feed</h2>
+            <p class="text-muted">
+                Currently using: <strong>{{ recommendation_method }}</strong> recommendations
+            </p>
+        </div>
+        <div class="col-md-4 text-end">
+            <div class="btn-group" role="group">
+                <a href="?use_sbert=false" 
+                   class="btn {% if not use_sbert %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                    TF-IDF
+                </a>
+                <a href="?use_sbert=true" 
+                   class="btn {% if use_sbert %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                    FAISS
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        {% for article in articles %}
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">{{ article.title }}</h5>
+                    <p class="card-text text-muted small">
+                        {{ article.source.name }} - {{ article.publication_date|date:"M d, Y H:i" }}
+                    </p>
+                    {% if article.article_summary %}
+                    <p class="card-text">{{ article.article_summary|truncatewords:30 }}</p>
+                    {% endif %}
+                    <div class="btn-group">
+                        <a href="{% url 'article_detail' article.id %}" 
+                           class="btn btn-sm btn-outline-primary">Read More</a>
+                        <button class="btn btn-sm btn-outline-secondary summarize-btn" 
+                                data-id="{{ article.id }}">
+                            Summarize
+                        </button>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-info dropdown-toggle" 
+                                    type="button" 
+                                    data-bs-toggle="dropdown">
+                                Translate
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item translate-btn" href="#" 
+                                       data-id="{{ article.id }}" data-lang="es">Spanish</a></li>
+                                <li><a class="dropdown-item translate-btn" href="#" 
+                                       data-id="{{ article.id }}" data-lang="fr">French</a></li>
+                                <li><a class="dropdown-item translate-btn" href="#" 
+                                       data-id="{{ article.id }}" data-lang="de">German</a></li>
+                                <li><a class="dropdown-item translate-btn" href="#" 
+                                       data-id="{{ article.id }}" data-lang="it">Italian</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h4 class="alert-heading">No articles found!</h4>
+                <p>Start reading some articles to get personalized recommendations.</p>
+                <hr>
+                <p class="mb-0">
+                    <a href="{% url 'dashboard' %}" class="alert-link">Go to Dashboard</a> to see all articles.
+                </p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle summarize button clicks
+    document.querySelectorAll('.summarize-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const articleId = this.dataset.id;
+            fetch(`/main/generate-summary/${articleId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                }
+            });
+        });
+    });
+
+    // Handle translate button clicks
+    document.querySelectorAll('.translate-btn').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            const articleId = this.dataset.id;
+            const targetLang = this.dataset.lang;
+            
+            fetch(`/main/translate-article/${articleId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ target_lang: targetLang })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.task_id) {
+                    checkTranslationStatus(data.task_id);
+                }
+            });
+        });
+    });
+
+    function checkTranslationStatus(taskId) {
+        fetch(`/tasks/status/${taskId}/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'SUCCESS') {
+                    location.reload();
+                } else if (data.status === 'PENDING' || data.status === 'STARTED') {
+                    setTimeout(() => checkTranslationStatus(taskId), 1000);
+                }
+            });
+    }
+});
+</script>
+{% endblock %}
+{% endblock %} 

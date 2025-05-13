@@ -17,26 +17,9 @@
                   data-id="{{ article.id }}">
             Summarize
           </button>
-          <div class="dropdown">
-            <button class="btn btn-sm btn-outline-info dropdown-toggle" 
-                    type="button" 
-                    data-bs-toggle="dropdown">
-              Translate
-            </button>
-            <ul class="dropdown-menu">
-              <li><a class="dropdown-item translate-btn" href="#" 
-                     data-id="{{ article.id }}" data-lang="es">Spanish</a></li>
-              <li><a class="dropdown-item translate-btn" href="#" 
-                     data-id="{{ article.id }}" data-lang="fr">French</a></li>
-              <li><a class="dropdown-item translate-btn" href="#" 
-                     data-id="{{ article.id }}" data-lang="de">German</a></li>
-              <li><a class="dropdown-item translate-btn" href="#" 
-                     data-id="{{ article.id }}" data-lang="it">Italian</a></li>
-              <li><a class="dropdown-item translate-btn" href="#" 
-                     data-id="{{ article.id }}" data-lang="pt">Portuguese</a></li>
-            </ul>
-          </div>
         </div>
+        <div id="summary-{{ article.id }}" class="mt-2" style="display: none;"></div>
+        <div id="translation-{{ article.id }}" class="mt-2" style="display: none;"></div>
       </div>
     </div>
   </div>
@@ -46,4 +29,57 @@
   </div>
   {% endfor %}
 </div>
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle summarize button clicks
+    document.querySelectorAll('.summarize-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const articleId = this.dataset.id;
+            const summaryDiv = document.getElementById(`summary-${articleId}`);
+            const button = this;
+            
+            button.disabled = true;
+            button.textContent = 'Summarizing...';
+            
+            fetch(`/main/article/${articleId}/summarize/`, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    summaryDiv.textContent = data.summary;
+                    summaryDiv.style.display = 'block';
+                }
+            })
+            .finally(() => {
+                button.disabled = false;
+                button.textContent = 'Summarize';
+            });
+        });
+    });
+
+    // Function to get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>
+{% endblock %}
 {% endblock %}

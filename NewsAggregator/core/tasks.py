@@ -1,6 +1,6 @@
 from celery import shared_task
 from .models import NewsSource, Article
-from .utils.scrapers import scrape_apnews
+from .utils.scrapers import get_scraper_for_url, parse_date
 from .utils.clustering import cluster_recent_articles
 from .utils.recommendations import build_tfidf_matrix
 from .utils.article_summarizer import summarize_article
@@ -10,6 +10,7 @@ from libretranslatepy import LibreTranslateAPI
 from django.conf import settings
 import logging
 from celery.result import AsyncResult
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 
@@ -23,26 +24,44 @@ def translate_article_content(self, article_id, target_lang):
         if not content:
             raise ValueError("No content to translate")
 
+        logger.info(f"Starting translation of article {article_id} to {target_lang}")
+        logger.info(f"Using LibreTranslate API at: {settings.LIBRETRANSLATE_API}")
+
         chunk_size = 5000
         chunks = [
             content[i : i + chunk_size] for i in range(0, len(content), chunk_size)
         ]
         translated_chunks = []
-        for chunk in chunks:
-            translated = lt.translate(
-                q=chunk,
-                source="en",
-                target=target_lang,
-                timeout=settings.LIBRETRANSLATE_TIMEOUT,
-            )
-            translated_chunks.append(translated)
-        article.translated_content = " ".join(translated_chunks)
+        for i, chunk in enumerate(chunks):
+            logger.info(f"Translating chunk {i+1}/{len(chunks)}")
+            try:
+                translated = lt.translate(
+                    q=chunk,
+                    source="en",
+                    target=target_lang,
+                    timeout=settings.LIBRETRANSLATE_TIMEOUT,
+                )
+                if not translated or translated == chunk:
+                    logger.warning(f"Translation returned same content for chunk {i+1}")
+                    continue
+                translated_chunks.append(translated)
+            except Exception as chunk_error:
+                logger.error(f"Error translating chunk {i+1}: {str(chunk_error)}")
+                raise
+
+        if not translated_chunks:
+            raise ValueError("No content was successfully translated")
+
+        translated_content = " ".join(translated_chunks)
+        logger.info(f"Successfully translated article {article_id}")
+        
+        article.translated_content = translated_content
         article.save()
-        return True
+        return translated_content
     except Exception as e:
         logger.error(f"Translation failed: {str(e)}")
         self.retry(countdown=30, exc=e)
-        return False
+        return f"Translation failed: {str(e)}"
 
 
 @shared_task
@@ -56,14 +75,17 @@ def scrape_articles():
     """
     Celery task to scrape articles from active news sources.
     """
-    from .utils.scrapers import get_scraper_for_url, parse_date
     import logging
 
     logger = logging.getLogger(__name__)
+    logger.info("Starting article scraping task")
 
-    for source in NewsSource.objects.filter(is_active=True):
+    active_sources = NewsSource.objects.filter(is_active=True)
+    logger.info(f"Found {active_sources.count()} active news sources")
+
+    for source in active_sources:
         try:
-
+            logger.info(f"Processing source: {source.name} ({source.base_url})")
             scraper = get_scraper_for_url(source.base_url)
 
             if not scraper:
@@ -72,17 +94,17 @@ def scrape_articles():
                 )
                 continue
 
-            logger.info(f"Scraping articles from {source.name} ({source.base_url})")
+            logger.info(f"Using scraper for {source.name}")
             articles = scraper(source.base_url)
 
             if not articles:
                 logger.warning(f"No articles found from {source.name}")
                 continue
 
+            logger.info(f"Found {len(articles)} articles from {source.name}")
             new_count = 0
             for article_data in articles:
                 try:
-
                     existing = Article.objects.filter(
                         source=source, title=article_data["title"]
                     ).exists()
@@ -96,6 +118,7 @@ def scrape_articles():
                             publication_date=parse_date(article_data["date"]),
                         )
                         new_count += 1
+                        logger.info(f"Added new article: {article_data['title']}")
                 except Exception as e:
                     logger.error(
                         f"Error saving article '{article_data.get('title', 'Unknown')}': {str(e)}"
@@ -107,6 +130,9 @@ def scrape_articles():
 
         except Exception as e:
             logger.error(f"Error scraping {source.name}: {str(e)}")
+            logger.exception(e)  # This will log the full traceback
+
+    logger.info("Finished article scraping task")
 
 
 @shared_task(rate_limit="1/h")
@@ -121,9 +147,7 @@ def update_tfidf_matrix():
 
 @shared_task
 def update_faiss_index():
-
     from .utils.recommendations import build_and_save_faiss_index
-
     build_and_save_faiss_index()
 
 

@@ -9,21 +9,6 @@ class Command(BaseCommand):
 
         news_sources = [
             {
-                "name": "AP News",
-                "base_url": "https://apnews.com",
-                "scraping_interval": 1800,
-            },
-            {
-                "name": "Reuters",
-                "base_url": "https://www.reuters.com",
-                "scraping_interval": 1800,
-            },
-            {
-                "name": "BBC News",
-                "base_url": "https://www.bbc.com/news",
-                "scraping_interval": 1800,
-            },
-            {
                 "name": "NPR",
                 "base_url": "https://www.npr.org/sections/news/",
                 "scraping_interval": 1800,
@@ -34,18 +19,8 @@ class Command(BaseCommand):
                 "scraping_interval": 1800,
             },
             {
-                "name": "CNN",
-                "base_url": "https://www.cnn.com",
-                "scraping_interval": 1800,
-            },
-            {
                 "name": "Al Jazeera English",
                 "base_url": "https://www.aljazeera.com",
-                "scraping_interval": 1800,
-            },
-            {
-                "name": "PBS NewsHour",
-                "base_url": "https://www.pbs.org/newshour/",
                 "scraping_interval": 1800,
             },
             {

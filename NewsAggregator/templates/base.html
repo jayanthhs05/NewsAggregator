@@ -12,6 +12,9 @@
             <a class="navbar-brand" href="{% url 'dashboard' %}">News Aggregator</a>
             <div class="navbar-collapse">
                 <div class="navbar-nav me-auto">
+                    {% if user.is_authenticated %}
+                        <a class="nav-link" href="{% url 'personalized_feed' %}">Personalized Feed</a>
+                    {% endif %}
                     <a class="nav-link" href="{% url 'event_clusters' %}">Event Clusters</a>
                 </div>
                 <div class="navbar-nav ms-auto">

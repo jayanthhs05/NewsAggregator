@@ -9,6 +9,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 from ..models import Article, UserActivity
 
+_model = None
+
+def get_model():
+    global _model
+    if _model is None:
+        if torch.cuda.is_available():
+            try:
+                device = 'cuda:0'
+                # Initialize CUDA context
+                torch.cuda.init()
+                torch.cuda.set_device(0)
+                print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+            except Exception as e:
+                print(f"Failed to initialize CUDA: {e}")
+                device = 'cpu'
+        else:
+            device = 'cpu'
+            print("Using CPU")
+        _model = SentenceTransformer("paraphrase-MiniLM-L6-v2", device=device)
+    return _model
 
 def build_tfidf_matrix():
     articles = Article.objects.filter(processed_content__isnull=False)
@@ -16,7 +36,9 @@ def build_tfidf_matrix():
     contents = [article.processed_content for article in articles]
     vectorizer = TfidfVectorizer(stop_words="english", max_features=5000)
     tfidf_matrix = vectorizer.fit_transform(contents)
-    return article_ids, tfidf_matrix, vectorizer
+    # Convert to numpy array
+    tfidf_array = tfidf_matrix.toarray()
+    return article_ids, tfidf_array, vectorizer
 
 
 def get_content_based_recommendations(user_id, n=10):
@@ -31,8 +53,13 @@ def get_content_based_recommendations(user_id, n=10):
     ]
     if not read_indices:
         return Article.objects.order_by("-publication_date")[:n]
-    user_profile = tfidf_matrix[read_indices].mean(axis=0)
-    cosine_similarities = cosine_similarity(user_profile, tfidf_matrix).flatten()
+    
+    # Convert to numpy array and ensure correct shape
+    user_profile = np.asarray(tfidf_matrix[read_indices].mean(axis=0)).reshape(1, -1)
+    tfidf_array = np.asarray(tfidf_matrix)
+    
+    # Calculate cosine similarity
+    cosine_similarities = cosine_similarity(user_profile, tfidf_array).flatten()
     similar_indices = cosine_similarities.argsort()[-(n + len(read_indices)) :][::-1]
     recommended_indices = [
         idx for idx in similar_indices if article_ids[idx] not in read_articles
@@ -54,7 +81,7 @@ def get_sentence_bert_recommendations(user_id, n=10):
         if activity.article.processed_content
     ]
     all_articles = list(Article.objects.filter(processed_content__isnull=False))
-    model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+    model = get_model()
     article_contents = [article.processed_content for article in all_articles]
     all_embeddings = model.encode(article_contents, convert_to_tensor=True)
     read_indices = [
@@ -82,7 +109,7 @@ FAISS_EMBEDDINGS_PATH = os.path.join(settings.BASE_DIR, "faiss_embeddings.npy")
 
 def build_and_save_faiss_index():
     all_articles = list(Article.objects.filter(processed_content__isnull=False))
-    model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+    model = get_model()
     article_contents = [article.processed_content for article in all_articles]
 
     embeddings = model.encode(article_contents, convert_to_numpy=True)
@@ -130,7 +157,7 @@ def get_faiss_recommendations(user_id, n=10):
 
     all_articles, index, embeddings = load_faiss_index()
 
-    model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
+    model = get_model()
     read_contents = [article.processed_content for article in read_articles]
     read_embeddings = model.encode(read_contents, convert_to_numpy=True)
 

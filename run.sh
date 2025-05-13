@@ -1,8 +1,8 @@
-#!/bin/sh
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' 
+#!/bin/bash
+RED=$(tput setaf 1)
+GREEN=$(tput setaf 2)
+YELLOW=$(tput setaf 3)
+NC=$(tput sgr0) 
 
 check_port() {
     port=$1
@@ -120,19 +120,48 @@ start_django() {
 }
 
 start_celery() {
-    echo "${YELLOW}Starting Celery worker...${NC}"
+    echo "${YELLOW}Starting Celery workers...${NC}"
     cd NewsAggregator
-    celery -A NewsAggregator worker -l info -Q celery,translations --beat &
-    CELERY_PID=$!
-    echo "${GREEN}Celery started with PID $CELERY_PID${NC}"
+    
+    # Start Celery beat
+    celery -A NewsAggregator beat -l info &
+    BEAT_PID=$!
+    echo "${GREEN}Celery beat started with PID $BEAT_PID${NC}"
+    
+    # Start worker with GPU support and spawn method
+    export PYTHONPATH=$PYTHONPATH:$(pwd)
+    export CELERY_WORKER_ID=0
+    celery -A NewsAggregator worker -l info -Q celery,translations --concurrency=1 --pool=prefork --prefetch-multiplier=1 &
+    WORKER_PID=$!
+    echo "${GREEN}Celery worker started with PID $WORKER_PID${NC}"
+    
     cd ..
     sleep 3
 }
 
+trigger_initial_tasks() {
+    echo "${YELLOW}Triggering initial tasks...${NC}"
+    cd NewsAggregator
+    python manage.py shell -c "
+import multiprocessing
+multiprocessing.set_start_method('spawn', force=True)
+from core.tasks import scrape_articles, update_event_clusters, update_tfidf_matrix, update_faiss_index
+scrape_articles.delay()
+update_event_clusters.delay()
+update_tfidf_matrix.delay()
+update_faiss_index.delay()
+"
+    cd ..
+    echo "${GREEN}Initial tasks triggered${NC}"
+}
+
 check_venv() {
-    if [ -d "venv" ]; then
+    if [ -d "../jayanth-ml" ]; then
         echo "${YELLOW}Activating virtual environment...${NC}"
-        source venv/bin/activate
+        source ../jayanth-ml/bin/activate
+    else
+        echo "${RED}Virtual environment not found in '../jayanth-ml' directory${NC}"
+        exit 1
     fi
 }
 
@@ -142,6 +171,7 @@ main() {
     check_services
     start_django
     start_celery
+    trigger_initial_tasks
     echo "\n${GREEN}All services started!${NC}"
     echo "----------------------------------------"
     echo "Access URLs:"

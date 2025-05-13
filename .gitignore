@@ -8,3 +8,7 @@
 **/db
 **/celerybeat-schedule
 **/dump.rdb
+**/faiss_index.pkl
+**/faiss_index
+**/faiss_embeddings.npy
+**/faiss_articles.pkl
